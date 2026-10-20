@@ -1,0 +1,206 @@
+name: Build Lunaris ROM (begonia)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: "Runner label (needs >=100 GB free, 16 GB RAM, 8+ cores)"
+        required: false
+        default: "ubuntu-24.04"
+        type: string
+      lunch_target:
+        description: "Lunch target"
+        required: false
+        default: "lineage_begonia-bp4a-user"
+        type: string
+      make_target:
+        description: "Make target"
+        required: false
+        default: "bacon"
+        type: string
+      kernel_repo:
+        description: "Kernel repo (GitHub owner/name)"
+        required: false
+        default: "Saikrishna1504/kernel_xiaomi_mt6785"
+        type: string
+      kernel_branch:
+        description: "Kernel branch"
+        required: false
+        default: "main"
+        type: string
+      vendor_repo:
+        description: "Vendor repo (GitHub owner/name)"
+        required: false
+        default: "Saikrishna1504/vendor_redmi_begonia"
+        type: string
+      vendor_branch:
+        description: "Vendor branch"
+        required: false
+        default: "bka"
+        type: string
+      gofile_folder_id:
+        description: "Optional Gofile folder ID (requires GOFILE_TOKEN)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rom-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Lunaris begonia
+    runs-on: ${{ inputs.runner_label || vars.ROM_RUNNER_LABEL || 'ubuntu-24.04' }}
+    timeout-minutes: 350
+    env:
+      ROM_DIR: ${{ github.workspace }}/rom
+      DEVICE_SRC: ${{ github.workspace }}/device-src
+      ROM_MANIFEST_URL: https://github.com/Lunaris-AOSP/android
+      ROM_BRANCH: "16.2"
+      LUNCH_TARGET: ${{ inputs.lunch_target }}
+      MAKE_TARGET: ${{ inputs.make_target }}
+      KERNEL_REPO: ${{ inputs.kernel_repo }}
+      KERNEL_BRANCH: ${{ inputs.kernel_branch }}
+      VENDOR_REPO: ${{ inputs.vendor_repo }}
+      VENDOR_BRANCH: ${{ inputs.vendor_branch }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 8G
+      LC_ALL: C
+      LINEAGE_BUILDTYPE: UNOFFICIAL
+
+    steps:
+      - name: Check out device tree
+        uses: actions/checkout@v4
+        with:
+          path: device-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Free disk space (GitHub-hosted runners)
+        if: runner.environment == 'github-hosted'
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          preinstalled-runtimes: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Check build resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          FREE_GB=$(df -BG --output=avail "$GITHUB_WORKSPACE" | tail -n1 | tr -dc '0-9')
+          echo "Free disk: ${FREE_GB:-0} GB"
+          if [ "${FREE_GB:-0}" -lt 100 ]; then
+            echo "::error title=Insufficient disk::A full AOSP/Lunaris build needs at least 100 GB free (150 GB recommended). Use a self-hosted or larger runner and set the runner_label input or the ROM_RUNNER_LABEL repository variable."
+            exit 1
+          fi
+          if [ "${FREE_GB:-0}" -lt 150 ]; then
+            echo "::warning title=Low disk::Less than 150 GB free; the build may run out of space. 150 GB or more is recommended."
+          fi
+          RAM_GB=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo)
+          echo "RAM: ${RAM_GB:-0} GB, CPUs: $(nproc)"
+          if [ "${RAM_GB:-0}" -lt 12 ]; then
+            echo "::warning title=Low RAM::Less than 12 GB RAM available; the build may be very slow or fail."
+          fi
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
+          $SUDO apt-get update
+          $SUDO apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
+            git git-lfs gnupg gperf imagemagick jq libelf-dev liblz4-tool \
+            libsdl1.2-dev libssl-dev libtinfo6 libxml2 libxml2-utils lzop \
+            libncurses-dev openjdk-21-jdk-headless pngcrush python3 python3-pip \
+            rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          for pkg in lib32readline-dev lib32z1-dev lib32ncurses-dev lib32stdc++-dev; do
+            $SUDO apt-get install -y --no-install-recommends "$pkg" || true
+          done
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+          chmod +x "$HOME/bin/repo"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ env.ROM_BRANCH }}-${{ env.LUNCH_TARGET }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ env.ROM_BRANCH }}-${{ env.LUNCH_TARGET }}-
+            ccache-${{ env.ROM_BRANCH }}-
+
+      - name: Sync and build
+        id: build
+        shell: bash
+        timeout-minutes: 320
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/bin:$PATH"
+          bash "$DEVICE_SRC/scripts/ci/build-rom.sh"
+
+      - name: Upload ROM to Gofile
+        id: gofile
+        if: success()
+        shell: bash
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ inputs.gofile_folder_id || vars.GOFILE_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          ROM_ZIP="${{ steps.build.outputs.rom_zip }}"
+          if [ -z "$ROM_ZIP" ] || [ ! -f "$ROM_ZIP" ]; then
+            ROM_ZIP=$(find "$ROM_DIR/out/target/product/begonia" -maxdepth 1 -type f -name '*.zip' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2- || true)
+          fi
+          if [ -z "$ROM_ZIP" ] || [ ! -f "$ROM_ZIP" ]; then
+            echo "::error::No ROM zip was produced."
+            exit 1
+          fi
+          bash "$DEVICE_SRC/scripts/ci/gofile-upload.sh" "$ROM_ZIP"
+
+      - name: Write build summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Lunaris begonia build"
+            echo ""
+            echo "- Ref: \`${GITHUB_REF_NAME}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Target: \`${LUNCH_TARGET}\` / \`${MAKE_TARGET}\`"
+            if [ -n "${{ steps.build.outputs.rom_zip }}" ]; then
+              echo "- ROM zip: \`$(basename "${{ steps.build.outputs.rom_zip }}")\`"
+              echo "- Size: ${{ steps.build.outputs.size_bytes }} bytes"
+              echo "- SHA256: \`${{ steps.build.outputs.sha256 }}\`"
+            fi
+            if [ -n "${{ steps.gofile.outputs.url }}" ]; then
+              echo "- Gofile download: ${{ steps.gofile.outputs.url }}"
+            fi
+            echo ""
+            echo "GitHub Actions artifacts are not used for the ROM because the zip can exceed the artifact/release size limit."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: begonia-build-metadata-${{ github.run_number }}
+          path: |
+            ${{ github.workspace }}/rom/out/ci/build-info.txt
+            ${{ github.workspace }}/rom/out/build.log
+            ${{ github.workspace }}/gofile-links.txt
+          if-no-files-found: ignore
+          retention-days: 3

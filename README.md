@@ -17,5 +17,12 @@ It was released in September 2019.
 | Camera (Rear - Main)    | 64 MP, f/1.9, 26mm (wide), 1/1.7", 0.8µm, PDAF                                                                                 |
 | Camera (Front)          | 20 MP, f/2.0, 0.9µm                                                                                                            |
 
+## Building with GitHub Actions
+
+The manual **Build Lunaris ROM (begonia)** workflow builds the full ROM and
+uploads the zip to Gofile. A full AOSP build needs a self-hosted or larger
+runner with at least 100 GB free (150 GB recommended); it does not fit on a
+standard GitHub-hosted runner. See `scripts/ci/README.md` for runner, secret,
+and input details.
 
 **Copyright (C) 2021 The LineageOS Project**
