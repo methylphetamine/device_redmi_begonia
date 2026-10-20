@@ -27,11 +27,23 @@ Gofile guest uploads work without credentials. For an account upload, add:
 The download link is written to the workflow run summary. A small metadata
 artifact containing the zip SHA256 and build log is kept for three days.
 
+## Build variant
+
+The default build is **vanilla**: `WITH_GMS := false` and
+`WITH_PIXEL_LAUNCHER := false` are set in `lineage_begonia.mk`, so the ROM does
+not include GMS, Pixel apps, or the Pixel Launcher. The build script reapplies
+these values after overlaying the device tree so the selected variant cannot
+silently drift.
+
+Tick `with_gms` in the workflow dispatch form to build with GMS. The Pixel
+Launcher stays disabled in that variant as well.
+
 ## Defaults
 
 - ROM manifest: `https://github.com/Lunaris-AOSP/android`, branch `16.2`
 - Lunch target: `lineage_begonia-bp4a-user`
 - Make target: `bacon`
+- Variant: vanilla (`with_gms=false`, Pixel Launcher disabled)
 - Kernel: `Saikrishna1504/kernel_xiaomi_mt6785`, branch `main`
 - Vendor: `Saikrishna1504/vendor_redmi_begonia`, branch `bka`
 

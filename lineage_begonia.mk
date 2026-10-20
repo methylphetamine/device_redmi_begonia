@@ -20,7 +20,9 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
 
 # Lunaris Specific Flags
 LUNARIS_BUILD_TYPE := UNOFFICIAL
-WITH_GMS := true
+# Vanilla by default. Set to true for GMS, or use the CI with_gms input.
+WITH_GMS := false
+WITH_PIXEL_LAUNCHER := false
 WITH_GMS_COMMS_SUITE := false
 TARGET_SUPORTS_GOOGLE_TELEPHONY := false
 TARGET_USE_GPHOTOS := false

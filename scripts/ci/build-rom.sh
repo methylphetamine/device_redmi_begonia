@@ -16,6 +16,8 @@ set -eo pipefail
 : "${VENDOR_REPO:?VENDOR_REPO is required}"
 : "${VENDOR_BRANCH:?VENDOR_BRANCH is required}"
 
+WITH_GMS="${WITH_GMS:-false}"
+
 export PATH="$HOME/bin:$PATH"
 export LC_ALL="${LC_ALL:-C}"
 export LINEAGE_BUILDTYPE="${LINEAGE_BUILDTYPE:-UNOFFICIAL}"
@@ -94,6 +96,21 @@ echo "==> Overlaying device tree from $DEVICE_SRC"
 mkdir -p device/redmi/begonia
 rsync -a --delete --exclude .git "$DEVICE_SRC/" device/redmi/begonia/
 
+DEVICE_MAKEFILE="$ROM_DIR/device/redmi/begonia/lineage_begonia.mk"
+if [ -f "$DEVICE_MAKEFILE" ]; then
+    if [ "$WITH_GMS" = "true" ]; then
+        sed -i 's/^WITH_GMS := .*/WITH_GMS := true/' "$DEVICE_MAKEFILE"
+    else
+        sed -i 's/^WITH_GMS := .*/WITH_GMS := false/' "$DEVICE_MAKEFILE"
+    fi
+    if grep -q '^WITH_PIXEL_LAUNCHER' "$DEVICE_MAKEFILE"; then
+        sed -i 's/^WITH_PIXEL_LAUNCHER := .*/WITH_PIXEL_LAUNCHER := false/' "$DEVICE_MAKEFILE"
+    else
+        sed -i '/^WITH_GMS := /a WITH_PIXEL_LAUNCHER := false' "$DEVICE_MAKEFILE"
+    fi
+fi
+echo "==> Build variant: WITH_GMS=$WITH_GMS, WITH_PIXEL_LAUNCHER=false"
+
 echo "==> Configuring build environment"
 # shellcheck disable=SC1091
 source build/envsetup.sh
@@ -127,6 +144,8 @@ BUILD_INFO="$ROM_DIR/out/ci/build-info.txt"
     echo "vendor_commit=$(git -C vendor/redmi/begonia rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "lunch_target=$LUNCH_TARGET"
     echo "make_target=$MAKE_TARGET"
+    echo "with_gms=$WITH_GMS"
+    echo "with_pixel_launcher=false"
     echo "rom_zip=$ROM_ZIP"
     echo "size_bytes=$SIZE_BYTES"
     echo "sha256=$SHA256"

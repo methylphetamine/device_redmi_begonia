@@ -18,6 +18,11 @@ on:
         required: false
         default: "bacon"
         type: string
+      with_gms:
+        description: "Include GMS. Leave false for a vanilla build."
+        required: false
+        default: false
+        type: boolean
       kernel_repo:
         description: "Kernel repo (GitHub owner/name)"
         required: false
@@ -63,6 +68,7 @@ jobs:
       ROM_BRANCH: "16.2"
       LUNCH_TARGET: ${{ inputs.lunch_target }}
       MAKE_TARGET: ${{ inputs.make_target }}
+      WITH_GMS: ${{ inputs.with_gms }}
       KERNEL_REPO: ${{ inputs.kernel_repo }}
       KERNEL_BRANCH: ${{ inputs.kernel_branch }}
       VENDOR_REPO: ${{ inputs.vendor_repo }}
@@ -181,6 +187,7 @@ jobs:
             echo "- Ref: \`${GITHUB_REF_NAME}\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Target: \`${LUNCH_TARGET}\` / \`${MAKE_TARGET}\`"
+            echo "- Variant: $([ "$WITH_GMS" = "true" ] && echo "GMS" || echo "vanilla") (Pixel Launcher disabled)"
             if [ -n "${{ steps.build.outputs.rom_zip }}" ]; then
               echo "- ROM zip: \`$(basename "${{ steps.build.outputs.rom_zip }}")\`"
               echo "- Size: ${{ steps.build.outputs.size_bytes }} bytes"
